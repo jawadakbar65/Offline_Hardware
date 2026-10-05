@@ -1,8 +1,12 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AppContext } from './storeContext'
 import { isSupabaseConfigured, supabase } from '../services/supabaseClient'
 
 const STORAGE_KEY = 'hardware-store-demo-v1'
+const DEFAULT_ADMIN_NAME = 'jawadali'
+const DEFAULT_ADMIN_EMAIL = 'jawadali@hardware.local'
+const DEFAULT_ADMIN_HASH = '30b8893ececa1085ee0aeb42356a25f0c419becc44c50e9f4e5028481f074491' // sha256('jawad321')
+const LEGACY_ADMIN_HASH = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9' // sha256('admin123')
 
 const currencyFormatter = new Intl.NumberFormat('en-PK', {
   style: 'currency',
@@ -155,17 +159,20 @@ const makeInitialState = () => ({
   payments: paymentSeed,
   auditLog: auditSeed,
   users: [
-    { id: 'user-admin', name: 'Admin User', email: 'admin@hardware.local', role: 'Administrator', passwordHash: '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9' },
+    { id: 'user-admin', name: DEFAULT_ADMIN_NAME, email: DEFAULT_ADMIN_EMAIL, role: 'Administrator', passwordHash: DEFAULT_ADMIN_HASH },
     { id: 'user-manager', name: 'Manager User', email: 'manager@hardware.local', role: 'Manager', passwordHash: '866485796cfa8d7c0cf7111640205b83076433547577511d81f8030ae99ecea5' },
     { id: 'user-sales', name: 'Sales User', email: 'sales@hardware.local', role: 'Salesperson', passwordHash: '6bc0a63cb29c92306020c0a6bbc358cc4628db277dc06e253535e126517ad637' },
   ],
 })
 
-const demoUserPasswords = {
-  'admin@hardware.local': 'admin123',
-  'manager@hardware.local': 'manager123',
-  'sales@hardware.local': 'sales123',
-}
+// One-time migration: previously stored admin accounts still using the
+// default password get the new default credentials (jawadali / jawad321).
+const migrateAdminCredentials = (users) =>
+  users.map((user) =>
+    user.id === 'user-admin' && user.passwordHash === LEGACY_ADMIN_HASH
+      ? { ...user, name: DEFAULT_ADMIN_NAME, email: DEFAULT_ADMIN_EMAIL, passwordHash: DEFAULT_ADMIN_HASH }
+      : user,
+  )
 
 const loadPersistedState = () => {
   const seed = makeInitialState()
@@ -186,7 +193,7 @@ const loadPersistedState = () => {
       purchases: Array.isArray(parsed.purchases) ? parsed.purchases : seed.purchases,
       expenses: Array.isArray(parsed.expenses) ? parsed.expenses : seed.expenses,
       payments: Array.isArray(parsed.payments) ? parsed.payments : seed.payments,
-      users: Array.isArray(parsed.users) ? parsed.users : seed.users,
+      users: migrateAdminCredentials(Array.isArray(parsed.users) ? parsed.users : seed.users),
       auditLog: Array.isArray(parsed.auditLog) ? parsed.auditLog : seed.auditLog,
     }
   } catch {
@@ -208,6 +215,10 @@ export function AppProvider({ children }) {
     return saved ? JSON.parse(saved) : null
   })
 
+  useEffect(() => {
+    document.documentElement.dataset.theme = state.store.theme === 'light' ? 'light' : 'dark'
+  }, [state.store.theme])
+
   const persistState = (updater) => {
     setState((previousState) => {
       const nextState = typeof updater === 'function' ? updater(previousState) : updater
@@ -216,8 +227,11 @@ export function AppProvider({ children }) {
     })
   }
 
-  const login = useCallback(async (email, password) => {
-    const savedUser = state.users.find((user) => user.email.toLowerCase() === email.toLowerCase())
+  const login = useCallback(async (identifier, password) => {
+    const needle = String(identifier || '').trim().toLowerCase()
+    const savedUser = state.users.find(
+      (user) => user.email.toLowerCase() === needle || user.name.toLowerCase() === needle,
+    )
     if (!savedUser) return { ok: false, message: 'User not found.' }
 
     const passwordHash = await hashPassword(password)
@@ -242,17 +256,80 @@ export function AppProvider({ children }) {
     localStorage.removeItem('hardware-auth-user')
   }, [])
 
+  const changePassword = useCallback(
+    async (currentPassword, newPassword) => {
+      if (!authUser) return { ok: false, message: 'Not signed in.' }
+      if (!newPassword || String(newPassword).length < 6) {
+        return { ok: false, message: 'New password must be at least 6 characters.' }
+      }
+
+      const currentHash = await hashPassword(currentPassword)
+      const storedUser = state.users.find((user) => user.id === authUser.id)
+      if (!storedUser || storedUser.passwordHash !== currentHash) {
+        return { ok: false, message: 'Current password is incorrect.' }
+      }
+
+      const nextHash = await hashPassword(newPassword)
+      persistState((previousState) => ({
+        ...previousState,
+        users: previousState.users.map((user) =>
+          user.id === authUser.id ? { ...user, passwordHash: nextHash } : user,
+        ),
+        auditLog: [
+          {
+            id: `audit-${Date.now()}`,
+            action: 'Changed account password',
+            user: authUser.email,
+            time: new Date().toISOString(),
+          },
+          ...previousState.auditLog,
+        ],
+      }))
+      return { ok: true, message: 'Password updated successfully.' }
+    },
+    [authUser, state.users],
+  )
+
+  const updateProfile = useCallback(
+    (updates) => {
+      if (!authUser) return { ok: false, message: 'Not signed in.' }
+
+      const name = String(updates.name || '').trim()
+      const email = String(updates.email || '').trim()
+      if (!name) return { ok: false, message: 'Name cannot be empty.' }
+      if (!email) return { ok: false, message: 'Email cannot be empty.' }
+
+      const emailTaken = state.users.some(
+        (user) => user.id !== authUser.id && user.email.toLowerCase() === email.toLowerCase(),
+      )
+      if (emailTaken) return { ok: false, message: 'That email is already used by another user.' }
+
+      const nextUser = { ...authUser, name, email }
+      persistState((previousState) => ({
+        ...previousState,
+        users: previousState.users.map((user) =>
+          user.id === authUser.id ? { ...user, name, email } : user,
+        ),
+      }))
+      setAuthUser(nextUser)
+      localStorage.setItem('hardware-auth-user', JSON.stringify(nextUser))
+      return { ok: true, message: 'Profile updated.' }
+    },
+    [authUser, state.users],
+  )
+
   const value = useMemo(() => ({
     state,
     authUser,
     login,
     logout,
+    changePassword,
+    updateProfile,
     saveState: persistState,
     formatCurrency: (value) => currencyFormatter.format(value || 0),
     hasSupabase: isSupabaseConfigured,
     supabase,
     canUseDemoMode: !isSupabaseConfigured,
-    demoCredentials: Object.entries(demoUserPasswords).map(([email, password]) => ({ email, password })),
     addProduct: (product) => {
       persistState((previousState) => ({
         ...previousState,
@@ -295,7 +372,7 @@ export function AppProvider({ children }) {
         suppliers: [supplier, ...previousState.suppliers],
       }))
     },
-  }), [authUser, login, logout, state])
+  }), [authUser, changePassword, login, logout, state, updateProfile])
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
 }

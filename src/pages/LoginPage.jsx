@@ -5,8 +5,8 @@ import { useHardwareStore } from '../context/useHardwareStore'
 
 export default function LoginPage() {
   const navigate = useNavigate()
-  const { login, demoCredentials, hasSupabase } = useHardwareStore()
-  const [form, setForm] = useState({ email: 'admin@hardware.local', password: 'admin123' })
+  const { login } = useHardwareStore()
+  const [form, setForm] = useState({ name: '', password: '' })
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -20,7 +20,7 @@ export default function LoginPage() {
     setError('')
     setIsSubmitting(true)
 
-    const result = await login(form.email, form.password)
+    const result = await login(form.name.trim(), form.password)
     setIsSubmitting(false)
 
     if (result.ok) {
@@ -46,20 +46,28 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="auth-form">
           <label>
-            Email
-            <input type="email" name="email" value={form.email} onChange={handleChange} required />
+            Name
+            <input
+              type="text"
+              name="name"
+              autoComplete="username"
+              value={form.name}
+              onChange={handleChange}
+              required
+            />
           </label>
 
           <label>
             Password
-            <input type="password" name="password" value={form.password} onChange={handleChange} required />
+            <input
+              type="password"
+              name="password"
+              autoComplete="current-password"
+              value={form.password}
+              onChange={handleChange}
+              required
+            />
           </label>
-
-          {hasSupabase ? (
-            <p className="status-note success">Supabase backend configuration detected.</p>
-          ) : (
-            <p className="status-note warning">Demo mode active. Local data storage is enabled for development.</p>
-          )}
 
           {error ? <p className="status-note error">{error}</p> : null}
 
@@ -67,18 +75,6 @@ export default function LoginPage() {
             {isSubmitting ? 'Signing in...' : 'Login'}
           </button>
         </form>
-
-        <div className="demo-credentials">
-          <h4>Demo users</h4>
-          <ul>
-            {demoCredentials.map((entry) => (
-              <li key={entry.email}>
-                <strong>{entry.email}</strong>
-                <span>{entry.password}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
       </div>
     </div>
   )

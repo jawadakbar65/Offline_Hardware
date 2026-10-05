@@ -59,8 +59,8 @@ const filled = await evaluate(`(() => {
     setter.call(el, value)
     el.dispatchEvent(new Event('input', { bubbles: true }))
   }
-  set(inputs[0], 'admin@hardware.local')
-  set(inputs[1], 'admin123')
+  set(inputs[0], 'jawadali')
+  set(inputs[1], 'jawad321')
   return 'ok'
 })()`)
 console.log('fill:', filled)
@@ -90,6 +90,6 @@ for (let i = 0; i < 24; i++) {
 ws.close()
 const data = JSON.parse(snapshot)
 console.log(JSON.stringify(data, null, 2))
-const pass = new URL(data.href).pathname.replace(/\/$/, '') === basePath && data.nav > 0 && /Admin User/.test(data.text)
+const pass = new URL(data.href).pathname.replace(/\/$/, '') === basePath && data.nav > 0 && /jawadali/.test(data.text)
 console.log(pass ? 'PASS: login works, dashboard rendered' : 'FAIL: login did not reach dashboard')
 process.exit(pass ? 0 : 1)

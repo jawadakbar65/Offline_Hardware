@@ -60,8 +60,8 @@ await evaluate(`(() => {
     setter.call(el, value)
     el.dispatchEvent(new Event('input', { bubbles: true }))
   }
-  set(inputs[0], 'admin@hardware.local')
-  set(inputs[1], 'admin123')
+  set(inputs[0], 'jawadali')
+  set(inputs[1], 'jawad321')
   const btn = [...document.querySelectorAll('button')].find((b) => /login/i.test(b.textContent))
   if (btn) btn.click()
   return 'done'
